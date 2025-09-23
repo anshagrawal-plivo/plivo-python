@@ -566,34 +566,65 @@ class PlivoAsyncAudioStreamClient:
         self._is_listening = True
 
         try:
-            async for message in self._websocket:
-                if not self._is_listening:
-                    break
+            # Check if this is a websockets library WebSocket (has __aiter__)
+            # or a FastAPI WebSocket (has receive_text method)
+            if hasattr(self._websocket, "__aiter__"):
+                # websockets library WebSocket - use async for
+                async for message in self._websocket:
+                    if not self._is_listening:
+                        break
+                    await self._process_message(message)
 
-                try:
-                    # Parse JSON message
+            elif hasattr(self._websocket, "receive_text"):
+                # FastAPI WebSocket - use receive_text in a loop
+                while self._is_listening:
                     try:
-                        data = json.loads(message)
-                    except json.JSONDecodeError:
-                        # Log or handle invalid JSON, but don't crash
-                        continue
-
-                    # Dispatch to appropriate handler based on event type
-                    event_type = data.get("event")
-                    handler = self._event_handlers.get(event_type)
-
-                    if handler:
-                        if asyncio.iscoroutinefunction(handler):
-                            await handler(data)
+                        message = await self._websocket.receive_text()
+                        await self._process_message(message)
+                    except Exception as e:
+                        # Handle WebSocket disconnect or other errors
+                        if (
+                            "websocket.disconnect" in str(e).lower()
+                            or "disconnect" in str(e).lower()
+                        ):
+                            break
                         else:
-                            # Handle sync handlers too
-                            handler(data)
+                            print(
+                                f"Error receiving message from FastAPI WebSocket: {str(e)}"
+                            )
+                            break
 
-                except Exception as e:
-                    # Log error but don't crash the listener
-                    print(f"Error in async message listener: {str(e)}")
-                    # For critical errors, we might want to break the loop
-                    break
+            elif hasattr(self._websocket, "receive"):
+                # Generic WebSocket with receive method
+                while self._is_listening:
+                    try:
+                        message = await self._websocket.receive()
+                        # Handle different message formats
+                        if isinstance(message, dict):
+                            if message.get("type") == "websocket.receive":
+                                text_message = message.get("text", "")
+                                if text_message:
+                                    await self._process_message(text_message)
+                        elif isinstance(message, str):
+                            await self._process_message(message)
+                    except Exception as e:
+                        print(
+                            f"Error receiving message from generic WebSocket: {str(e)}"
+                        )
+                        break
+
+            else:
+                # Unknown WebSocket type
+                available_methods = [
+                    method
+                    for method in dir(self._websocket)
+                    if not method.startswith("_")
+                    and callable(getattr(self._websocket, method))
+                ]
+                raise PlivoAudioStreamError(
+                    f"Unknown WebSocket type. Available methods: {available_methods}. "
+                    f"Expected WebSocket with __aiter__, receive_text, or receive methods."
+                )
 
         except Exception as e:
             # Critical error, stop listening
@@ -601,6 +632,36 @@ class PlivoAsyncAudioStreamClient:
             raise PlivoAudioStreamError(f"Async message listener failed: {str(e)}")
         finally:
             self._is_listening = False
+
+    async def _process_message(self, message: str) -> None:
+        """
+        Process a received WebSocket message.
+
+        Args:
+            message: The message string to process
+        """
+        try:
+            # Parse JSON message
+            try:
+                data = json.loads(message)
+            except json.JSONDecodeError:
+                # Log or handle invalid JSON, but don't crash
+                return
+
+            # Dispatch to appropriate handler based on event type
+            event_type = data.get("event")
+            handler = self._event_handlers.get(event_type)
+
+            if handler:
+                if asyncio.iscoroutinefunction(handler):
+                    await handler(data)
+                else:
+                    # Handle sync handlers too
+                    handler(data)
+
+        except Exception as e:
+            # Log error but don't crash the listener
+            print(f"Error processing message: {str(e)}")
 
     def stop_listening(self) -> None:
         """

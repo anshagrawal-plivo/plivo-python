@@ -6,10 +6,10 @@
 [![codecov](https://codecov.io/gh/plivo/plivo-python/branch/master/graph/badge.svg)](https://codecov.io/gh/plivo/plivo-python)
 [![PyPI](https://img.shields.io/pypi/l/plivo.svg)](https://pypi.python.org/pypi/plivo)
 
-
 The Plivo Python SDK makes it simpler to integrate communications into your Python applications using the Plivo REST API. Using the SDK, you will be able to make voice calls, send SMS and generate Plivo XML to control your call flows.
 
 ## Installation
+
 Install the SDK using [pip](http://www.pip-installer.org/en/latest/)
 
     pip install plivo
@@ -23,7 +23,7 @@ Alternatively, you can download the source code from this repo(master branch) an
 For features in beta, use the beta branch:
 
     pip install plivo==4.2.0b1
-    
+
 Alternatively, you can download the source code from this repo(beta branch) and run
 
     python setup.py install
@@ -33,6 +33,7 @@ We recommend that you use [virtualenv](https://virtualenv.pypa.io/en/stable/) to
 ## Getting started
 
 ### Authentication
+
 To make the API requests, you need to create a `RestClient` and provide it with authentication credentials (which can be found at [https://manage.plivo.com/dashboard/](https://manage.plivo.com/dashboard/)).
 
 We recommend that you store your credentials in the `PLIVO_AUTH_ID` and the `PLIVO_AUTH_TOKEN` environment variables, so as to avoid the possibility of accidentally committing them to source control. If you do this, you can initialise the client with no arguments and it will automatically fetch them from the environment variables:
@@ -42,6 +43,7 @@ import plivo
 
 client = plivo.RestClient()
 ```
+
 Alternatively, you can specifiy the authentication credentials while initializing the `RestClient`.
 
 ```python
@@ -60,6 +62,7 @@ with plivo.RestClient() as client:
 ```
 
 ### The basics
+
 The SDK uses consistent interfaces to create, retrieve, update, delete and list resources. The pattern followed is as follows:
 
 ```python
@@ -161,21 +164,24 @@ print(response)
 ```
 
 ## WhatsApp Messaging
+
 Plivo's WhatsApp API allows you to send different types of messages over WhatsApp, including templated messages, free form messages and interactive messages. Below are some examples on how to use the Plivo Go SDK to send these types of messages.
 
 ### Templated Messages
+
 Templated messages are a crucial to your WhatsApp messaging experience, as businesses can only initiate WhatsApp conversation with their customers using templated messages.
 
-WhatsApp templates support 4 components:  `header` ,  `body`,  `footer`  and `button`. At the point of sending messages, the template object you see in the code acts as a way to pass the dynamic values within these components.  `header`  can accomodate `text` or `media` (images, video, documents) content.  `body`  can accomodate text content.  `button`  can support dynamic values in a `url` button or to specify a developer-defined payload which will be returned when the WhatsApp user clicks on the `quick_reply` button. `footer`  cannot have any dynamic variables.
+WhatsApp templates support 4 components: `header` , `body`, `footer` and `button`. At the point of sending messages, the template object you see in the code acts as a way to pass the dynamic values within these components. `header` can accomodate `text` or `media` (images, video, documents) content. `body` can accomodate text content. `button` can support dynamic values in a `url` button or to specify a developer-defined payload which will be returned when the WhatsApp user clicks on the `quick_reply` button. `footer` cannot have any dynamic variables.
 
 Example:
+
 ```python
 import plivo
 from plivo.utils.template import Template
 
 client = plivo.RestClient('<auth_id>','<auth_token>')
 
-template=Template(**{ 
+template=Template(**{
             "name": "template_name",
             "language": "en_US",
             "components": [
@@ -200,7 +206,7 @@ template=Template(**{
             ]
           }
        )
-response = client.messages.create(   
+response = client.messages.create(
         src="the_from_number",
         dst="the_to_number",
         type_="whatsapp",
@@ -211,10 +217,13 @@ print(response)
 ```
 
 ### Free Form Messages
+
 Non-templated or Free Form WhatsApp messages can be sent as a reply to a user-initiated conversation (Service conversation) or if there is an existing ongoing conversation created previously by sending a templated WhatsApp message.
 
 #### Free Form Text Message
+
 Example:
+
 ```python
 import plivo
 client = plivo.RestClient('<auth_id>','<auth_token>')
@@ -228,7 +237,9 @@ print(response)
 ```
 
 #### Free Form Media Message
+
 Example:
+
 ```python
 import plivo
 client = plivo.RestClient('<auth_id>','<auth_token>')
@@ -243,12 +254,15 @@ print(response)
 ```
 
 ### Interactive Messages
+
 This guide shows how to send non-templated interactive messages to recipients using Plivo’s APIs.
 
 #### Quick Reply Buttons
+
 Quick reply buttons allow customers to quickly respond to your message with predefined options.
 
 Example:
+
 ```python
 import plivo
 from plivo.utils.interactive import Interactive
@@ -292,9 +306,11 @@ print(response)
 ```
 
 #### Interactive Lists
+
 Interactive lists allow you to present customers with a list of options.
 
 Example:
+
 ```python
 import plivo
 from plivo.utils.interactive import Interactive
@@ -362,9 +378,11 @@ print(response)
 ```
 
 #### Interactive CTA URLs
+
 CTA URL messages allow you to send links and call-to-action buttons.
 
 Example:
+
 ```python
 import plivo
 from plivo.utils.interactive import Interactive
@@ -403,10 +421,13 @@ print(response)
 ```
 
 ### Location Messages
+
 This guide shows how to send templated and non-templated location messages to recipients using Plivo’s APIs.
 
 #### Templated Location Messages
+
 Example:
+
 ```python
 import plivo
 from plivo.utils.template import Template
@@ -444,7 +465,9 @@ print(response)
 ```
 
 #### Non-Templated Location Messages
+
 Example:
+
 ```python
 import plivo
 from plivo.utils.location import Location
@@ -468,9 +491,11 @@ print(response)
 ```
 
 #### Templated WhatsApp Messages With Named Parameter
+
 This guide shows how to send templated WhatsApp messages with named parameters.
 
 Example:
+
 ```python
 import plivo
 from plivo.utils.template import Template
@@ -514,7 +539,15 @@ print(response)
 ```
 
 ### More examples
+
+Check out the [examples directory](examples/) for additional code samples including:
+
+- **Audio Streaming**: WebSocket-based real-time audio streaming with both sync and async clients
+- **FastAPI Integration**: Complete web application example with bidirectional audio streaming
+- **JWT Authentication**: Token-based authentication examples
+
 Refer to the [Plivo API Reference](https://www.plivo.com/docs/messaging/api/overview/) for more examples. Also refer to the [guide to setting up dev environment](https://www.plivo.com/docs/messaging/quickstart/python-flask/) on [Plivo Developers Portal](https://www.plivo.com/docs/) to setup a Flask server & use it to test out your integration in under 5 minutes. to get started with Plivo.
 
 ## Reporting issues
+
 Report any feedback or problems with this version by [opening an issue on Github](https://github.com/plivo/plivo-python/issues).

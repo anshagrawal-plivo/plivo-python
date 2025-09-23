@@ -347,13 +347,48 @@ The streaming client uses the following exception hierarchy:
 
 The client uses a background thread for listening to WebSocket messages. All event handlers are called from this background thread, so ensure thread-safety in your handlers if they interact with shared data.
 
+## WebSocket Compatibility
+
+### Supported WebSocket Types
+
+The abstraction layer supports multiple WebSocket implementations:
+
+**For `PlivoAsyncAudioStreamClient`:**
+
+- `websockets` library WebSockets (with `__aiter__` method)
+- FastAPI WebSocket objects (with `receive_text()` method)
+- Generic WebSocket objects (with `receive()` method)
+
+**For `PlivoAudioStreamClient`:**
+
+- `websocket-client` library WebSockets
+- Any WebSocket with `recv()` method
+
+### Implementation Detection
+
+The library automatically detects the WebSocket type and uses the appropriate methods:
+
+```python
+# websockets library - uses async iteration
+async for message in websocket:
+    process(message)
+
+# FastAPI WebSocket - uses receive_text()
+while listening:
+    message = await websocket.receive_text()
+    process(message)
+
+# Generic WebSocket - uses receive()
+while listening:
+    message = await websocket.receive()
+    process(message)
+```
+
 ## Limitations
 
-- Requires `websocket-client` library (not `websockets`)
-- Only works with synchronous WebSocket implementations
-- Event handlers run in a background thread
 - WebSocket connection management is left to the user
 - No automatic reconnection (implement in your application if needed)
+- Event handlers for sync client run in a background thread
 
 ## Troubleshooting
 
@@ -401,6 +436,33 @@ async def main():
 asyncio.run(main())
 ```
 
+### FastAPI Integration Issues
+
+If you get `'async for' requires an object with __aiter__ method` error:
+
+This happens when using FastAPI WebSocket objects with older versions of the abstraction layer. The latest version automatically detects and handles FastAPI WebSockets.
+
+**Solution:**
+
+```python
+from fastapi import WebSocket
+from plivo import PlivoAsyncAudioStreamClient
+
+@app.websocket("/ws/audio")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+
+    # This now works automatically - no special handling needed
+    plivo_client = PlivoAsyncAudioStreamClient(websocket)
+
+    @plivo_client.onAudio
+    async def handle_audio(data):
+        # Process audio
+        pass
+
+    await plivo_client.start_listening()
+```
+
 ### Choosing the Right Client
 
 **Use `PlivoAudioStreamClient` when:**
@@ -412,7 +474,7 @@ asyncio.run(main())
 **Use `PlivoAsyncAudioStreamClient` when:**
 
 - Working with asyncio-based applications
-- Using `websockets` library
+- Using `websockets` library or FastAPI WebSockets
 - Building modern async applications or need to handle multiple streams concurrently
 
 ## Best Practices
