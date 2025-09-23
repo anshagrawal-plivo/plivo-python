@@ -175,7 +175,7 @@ class PlivoAudioStreamClient:
 
         try:
             message_json = json.dumps(message)
-            self._websocket.send(message_json)
+            self._send_message(message_json)
         except Exception as e:
             raise PlivoAudioStreamError(f"Failed to send audio data: {str(e)}")
 
@@ -221,8 +221,8 @@ class PlivoAudioStreamClient:
         try:
             while self._is_listening:
                 try:
-                    # Receive message from WebSocket
-                    message = self._websocket.recv()
+                    # Receive message from WebSocket - handle different WebSocket implementations
+                    message = self._receive_message()
                     if not message:
                         continue
 
@@ -262,6 +262,96 @@ class PlivoAudioStreamClient:
             # Critical error, stop listening
             self._is_listening = False
             raise PlivoAudioStreamError(f"Message listener failed: {str(e)}")
+
+    def _receive_message(self):
+        """
+        Receive a message from the WebSocket, handling different WebSocket implementations.
+
+        Returns:
+            The received message string
+
+        Raises:
+            PlivoAudioStreamError: If no compatible receive method is found
+        """
+        # Try different WebSocket receive methods based on the library
+
+        # Method 1: websocket-client library
+        if hasattr(self._websocket, "recv"):
+            return self._websocket.recv()
+
+        # Method 2: Some WebSocket implementations use 'receive'
+        elif hasattr(self._websocket, "receive"):
+            return self._websocket.receive()
+
+        # Method 3: Some implementations use 'receive_text'
+        elif hasattr(self._websocket, "receive_text"):
+            return self._websocket.receive_text()
+
+        # Method 4: Check if it's an asyncio WebSocket (websockets library)
+        elif hasattr(self._websocket, "__aiter__"):
+            raise PlivoAudioStreamError(
+                "Asyncio WebSocket detected. This client requires a synchronous WebSocket. "
+                "Use websocket-client library: pip install websocket-client"
+            )
+
+        # Method 5: Try to get available methods for debugging
+        else:
+            available_methods = [
+                method
+                for method in dir(self._websocket)
+                if not method.startswith("_")
+                and callable(getattr(self._websocket, method))
+            ]
+            raise PlivoAudioStreamError(
+                f"WebSocket object doesn't have a compatible receive method. "
+                f"Available methods: {available_methods}. "
+                f"Please ensure you're using a compatible WebSocket implementation like websocket-client."
+            )
+
+    def _send_message(self, message):
+        """
+        Send a message to the WebSocket, handling different WebSocket implementations.
+
+        Args:
+            message: The message string to send
+
+        Raises:
+            PlivoAudioStreamError: If no compatible send method is found
+        """
+        # Try different WebSocket send methods based on the library
+
+        # Method 1: Most common - websocket-client and others
+        if hasattr(self._websocket, "send"):
+            return self._websocket.send(message)
+
+        # Method 2: Some implementations use 'send_text'
+        elif hasattr(self._websocket, "send_text"):
+            return self._websocket.send_text(message)
+
+        # Method 3: Some implementations use 'write'
+        elif hasattr(self._websocket, "write"):
+            return self._websocket.write(message)
+
+        # Method 4: Check if it's an asyncio WebSocket (websockets library)
+        elif hasattr(self._websocket, "__aiter__"):
+            raise PlivoAudioStreamError(
+                "Asyncio WebSocket detected. This client requires a synchronous WebSocket. "
+                "Use websocket-client library: pip install websocket-client"
+            )
+
+        # Method 5: No compatible send method found
+        else:
+            available_methods = [
+                method
+                for method in dir(self._websocket)
+                if not method.startswith("_")
+                and callable(getattr(self._websocket, method))
+            ]
+            raise PlivoAudioStreamError(
+                f"WebSocket object doesn't have a compatible send method. "
+                f"Available methods: {available_methods}. "
+                f"Please ensure you're using a compatible WebSocket implementation like websocket-client."
+            )
 
     def is_listening(self) -> bool:
         """

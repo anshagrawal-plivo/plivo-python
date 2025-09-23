@@ -14,13 +14,15 @@ The streaming functionality requires an additional dependency:
 pip install websocket-client
 ```
 
+**Important:** Use the `websocket-client` library, not the `websockets` library. The `websockets` library is asyncio-based and not compatible with this synchronous client.
+
 ## Quick Start
 
 ```python
-import websocket
+import websocket  # pip install websocket-client
 from plivo import PlivoAudioStreamClient
 
-# Create WebSocket connection
+# Create WebSocket connection using websocket-client library
 ws = websocket.create_connection("wss://your-streaming-endpoint.example.com/audio")
 
 # Create streaming client
@@ -178,10 +180,47 @@ The client uses a background thread for listening to WebSocket messages. All eve
 
 ## Limitations
 
-- Requires `websocket-client` library
+- Requires `websocket-client` library (not `websockets`)
+- Only works with synchronous WebSocket implementations
 - Event handlers run in a background thread
 - WebSocket connection management is left to the user
 - No automatic reconnection (implement in your application if needed)
+
+## Troubleshooting
+
+### "WebSocket object has no attribute 'recv'" Error
+
+This error means you're using an incompatible WebSocket implementation. The most common causes:
+
+1. **Wrong library**: You might be using the `websockets` library instead of `websocket-client`
+2. **Wrong object type**: You might be passing an asyncio WebSocket object
+
+**Solution:**
+
+```bash
+# Install the correct library
+pip install websocket-client
+
+# NOT: pip install websockets  (this is asyncio-based)
+```
+
+**Correct usage:**
+
+```python
+import websocket  # websocket-client library
+ws = websocket.create_connection("wss://your-endpoint")
+client = PlivoAudioStreamClient(ws)
+```
+
+### Testing WebSocket Compatibility
+
+Use the included diagnostic script:
+
+```bash
+python examples/websocket_test.py
+```
+
+This will test your WebSocket setup and show available methods.
 
 ## Best Practices
 
