@@ -426,10 +426,10 @@ class PlivoAsyncAudioStreamClient:
 
                 # Start listening (runs in background)
                 listen_task = asyncio.create_task(stream_client.start_listening())
-                
+
                 # Send audio data
                 await stream_client.playAudio(base64_audio_data)
-                
+
                 # Wait for listening to complete or cancel it
                 await listen_task
 
@@ -581,7 +581,7 @@ class PlivoAsyncAudioStreamClient:
                     # Dispatch to appropriate handler based on event type
                     event_type = data.get("event")
                     handler = self._event_handlers.get(event_type)
-                    
+
                     if handler:
                         if asyncio.iscoroutinefunction(handler):
                             await handler(data)
@@ -623,17 +623,17 @@ class PlivoAsyncAudioStreamClient:
         # Try different async WebSocket send methods
 
         # Method 1: Most common - websockets library and others
-        if hasattr(self._websocket, 'send'):
+        if hasattr(self._websocket, "send"):
             await self._websocket.send(message)
-        
+
         # Method 2: Some implementations use 'send_text'
-        elif hasattr(self._websocket, 'send_text'):
+        elif hasattr(self._websocket, "send_text"):
             await self._websocket.send_text(message)
-            
+
         # Method 3: Some implementations use 'write'
-        elif hasattr(self._websocket, 'write'):
+        elif hasattr(self._websocket, "write"):
             await self._websocket.write(message)
-            
+
         # Method 4: No compatible send method found
         else:
             available_methods = [
@@ -675,9 +675,9 @@ class PlivoAsyncAudioStreamClient:
         self.stop_listening()
         if self._websocket:
             try:
-                if hasattr(self._websocket, 'close'):
+                if hasattr(self._websocket, "close"):
                     await self._websocket.close()
-                elif hasattr(self._websocket, 'aclose'):
+                elif hasattr(self._websocket, "aclose"):
                     await self._websocket.aclose()
             except Exception:
                 # Ignore errors when closing

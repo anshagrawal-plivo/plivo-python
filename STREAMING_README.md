@@ -16,16 +16,19 @@ Both provide a simple, event-driven interface for handling real-time audio strea
 The streaming functionality requires an additional dependency depending on your use case:
 
 ### For Synchronous Usage (PlivoAudioStreamClient)
+
 ```bash
 pip install websocket-client
 ```
 
 ### For Asynchronous Usage (PlivoAsyncAudioStreamClient)
+
 ```bash
 pip install websockets
 ```
 
 You can install both if you want to use both sync and async clients:
+
 ```bash
 pip install websocket-client websockets
 ```
@@ -49,7 +52,7 @@ stream_client = PlivoAudioStreamClient(ws)
 def handle_audio(data):
     print(f"Received audio: {len(data['media']['payload'])} bytes")
 
-@stream_client.onStart  
+@stream_client.onStart
 def handle_start(data):
     print("Stream started:", data)
 
@@ -76,31 +79,31 @@ from plivo import PlivoAsyncAudioStreamClient
 async def main():
     # Create WebSocket connection using websockets library
     async with websockets.connect("wss://your-streaming-endpoint.example.com/audio") as ws:
-        
+
         # Create async streaming client
         stream_client = PlivoAsyncAudioStreamClient(ws)
-        
+
         # Set up async event handlers
         @stream_client.onAudio
         async def handle_audio(data):
             print(f"Received audio: {len(data['media']['payload'])} bytes")
-        
+
         @stream_client.onStart
         async def handle_start(data):
             print("Stream started:", data)
-        
+
         @stream_client.onEnd
         async def handle_end(data):
             print("Stream ended:", data)
-        
+
         # Start listening (runs in background)
         listen_task = asyncio.create_task(stream_client.start_listening())
-        
+
         # Send audio data
         import base64
         audio_data = base64.b64encode(b"your_audio_data").decode('utf-8')
         await stream_client.playAudio(audio_data)
-        
+
         # Wait for events or cancel listening
         try:
             await asyncio.wait_for(listen_task, timeout=10.0)
@@ -229,14 +232,17 @@ PlivoAsyncAudioStreamClient(websocket_connection)
 ```
 
 **Parameters:**
+
 - `websocket_connection`: An active async WebSocket connection object (e.g., from `websockets.connect()`)
 
 **Raises:**
+
 - `InvalidRequestError`: If websocket_connection is None
 
 #### Event Handlers
 
 ##### onAudio(handler)
+
 Register an async handler for audio data events (when `data.event === 'media'`).
 
 ```python
@@ -248,6 +254,7 @@ async def handle_audio(data):
 ```
 
 ##### onStart(handler)
+
 Register an async handler for stream start events (when `data.event === 'start'`).
 
 ```python
@@ -257,6 +264,7 @@ async def handle_start(data):
 ```
 
 ##### onEnd(handler)
+
 Register an async handler for stream end events (when `data.event === 'end'`).
 
 ```python
@@ -268,9 +276,11 @@ async def handle_end(data):
 #### Methods
 
 ##### async playAudio(audio_data, sample_rate=24000, content_type="audio/x-l16")
+
 Send base64-encoded audio data to the WebSocket asynchronously.
 
 **Parameters:**
+
 - `audio_data` (str): Base64 encoded audio data
 - `sample_rate` (int): Audio sample rate (default: 24000)
 - `content_type` (str): Audio content type (default: "audio/x-l16")
@@ -278,9 +288,11 @@ Send base64-encoded audio data to the WebSocket asynchronously.
 **Message Format:** Same JSON structure as sync client
 
 ##### async start_listening()
+
 Start listening for WebSocket messages. This method runs until the WebSocket is closed.
 
 **Usage:**
+
 ```python
 # Run in background
 listen_task = asyncio.create_task(stream_client.start_listening())
@@ -290,12 +302,15 @@ listen_task.cancel()
 ```
 
 ##### stop_listening()
+
 Stop the message listener.
 
 ##### is_listening()
+
 Returns `True` if currently listening for messages.
 
 ##### async close()
+
 Close the WebSocket connection and stop listening.
 
 #### Async Context Manager Support
@@ -352,6 +367,7 @@ This error means you're using an incompatible WebSocket implementation with the 
 **Solutions:**
 
 #### For Synchronous Usage:
+
 ```bash
 # Install websocket-client library
 pip install websocket-client
@@ -366,8 +382,9 @@ client = PlivoAudioStreamClient(ws)
 ```
 
 #### For Asynchronous Usage:
+
 ```bash
-# Install websockets library  
+# Install websockets library
 pip install websockets
 ```
 
@@ -387,11 +404,13 @@ asyncio.run(main())
 ### Choosing the Right Client
 
 **Use `PlivoAudioStreamClient` when:**
+
 - Working with synchronous code
-- Using `websocket-client` library  
+- Using `websocket-client` library
 - Building simple scripts or traditional applications
 
 **Use `PlivoAsyncAudioStreamClient` when:**
+
 - Working with asyncio-based applications
 - Using `websockets` library
 - Building modern async applications or need to handle multiple streams concurrently
