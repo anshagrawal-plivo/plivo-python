@@ -513,14 +513,13 @@ class PlivoAudioStreamClient:
             PlivoAudioStreamError: If no compatible send method is found
         """
         # Try different WebSocket send methods based on the library
-
-        # Method 1: Most common - websocket-client and others
-        if hasattr(self._websocket, "send"):
-            return self._websocket.send(message)
-
-        # Method 2: Some implementations use 'send_text'
-        elif hasattr(self._websocket, "send_text"):
+        # Method 1: Some implementations use 'send_text'
+        if hasattr(self._websocket, "send_text"):
             return self._websocket.send_text(message)
+
+        # Method 2
+        elif hasattr(self._websocket, "send"):
+            return self._websocket.send(message)
 
         # Method 3: Some implementations use 'write'
         elif hasattr(self._websocket, "write"):
@@ -937,7 +936,7 @@ class PlivoAsyncAudioStreamClient:
         # Method 2: Some implementations use 'send_text'
         if hasattr(self._websocket, "send_text"):
             await self._websocket.send_text(message)
-            
+
         # Method 1: Most common - websockets library and others
         elif hasattr(self._websocket, "send"):
             await self._websocket.send(message)
