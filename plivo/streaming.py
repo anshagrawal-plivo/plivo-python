@@ -789,9 +789,6 @@ class PlivoAsyncAudioStreamClient:
                     "sampleRate": final_sample_rate,
                     "contentType": final_content_type,
                 },
-                "sequenceNumber": chunk_index,
-                "totalChunks": total_chunks,
-                "chunkIndex": chunk_index,
             }
 
             try:
@@ -937,13 +934,14 @@ class PlivoAsyncAudioStreamClient:
         """
         # Try different async WebSocket send methods
 
+        # Method 2: Some implementations use 'send_text'
+        if hasattr(self._websocket, "send_text"):
+            await self._websocket.send_text(message)
+            
         # Method 1: Most common - websockets library and others
-        if hasattr(self._websocket, "send"):
+        elif hasattr(self._websocket, "send"):
             await self._websocket.send(message)
 
-        # Method 2: Some implementations use 'send_text'
-        elif hasattr(self._websocket, "send_text"):
-            await self._websocket.send_text(message)
 
         # Method 3: Some implementations use 'write'
         elif hasattr(self._websocket, "write"):
