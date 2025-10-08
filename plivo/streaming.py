@@ -7,9 +7,11 @@ over WebSocket connections. It allows users to easily handle streaming events
 and send audio data.
 """
 
+import base64
 import json
 import threading
 import asyncio
+import numpy as np
 from typing import Callable, Optional, Dict, Any, Union
 
 try:
@@ -28,11 +30,136 @@ try:
 except ImportError:
     websocket = None
 
+try:
+    import librosa
+except ImportError:
+    librosa = None
+
 
 class PlivoAudioStreamError(PlivoRestError):
     """Exception raised for audio streaming errors"""
 
     pass
+
+
+def _resample_audio_for_plivo(
+    audio_data: bytes, 
+    original_sample_rate: int, 
+    target_format: str = "l16_16khz",
+    original_channels: int = 1
+) -> tuple[bytes, int, str]:
+    """
+    Resample audio data to Plivo-supported formats.
+    
+    Plivo supports:
+    - 8kHz with mulaw (audio/x-mulaw)
+    - 16kHz with l-16 (audio/x-l16)
+    
+    Args:
+        audio_data: Raw audio bytes (assumed to be 16-bit PCM)
+        original_sample_rate: Original sample rate of the audio
+        target_format: Either "mulaw_8khz" or "l16_16khz" (default)
+        original_channels: Number of channels in original audio (default: 1)
+        
+    Returns:
+        Tuple of (resampled_audio_bytes, sample_rate, content_type)
+        
+    Raises:
+        PlivoAudioStreamError: If librosa is not available or resampling fails
+    """
+    if librosa is None:
+        raise PlivoAudioStreamError(
+            "librosa library is required for audio resampling. "
+            "Install it with: pip install librosa"
+        )
+    
+    if target_format not in ["mulaw_8khz", "l16_16khz"]:
+        raise InvalidRequestError("target_format must be either 'mulaw_8khz' or 'l16_16khz'")
+    
+    try:
+        # Convert bytes to numpy array (assuming 16-bit PCM)
+        audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
+        
+        # Normalize to [-1, 1] range
+        audio_array = audio_array / 32768.0
+        
+        # Handle multi-channel audio by converting to mono
+        if original_channels > 1:
+            audio_array = audio_array.reshape(-1, original_channels).mean(axis=1)
+        
+        # Determine target sample rate and content type
+        if target_format == "mulaw_8khz":
+            target_sample_rate = 8000
+            target_content_type = "audio/x-mulaw"
+        else:  # l16_16khz
+            target_sample_rate = 16000
+            target_content_type = "audio/x-l16"
+        
+        # Resample if needed
+        if original_sample_rate != target_sample_rate:
+            audio_array = librosa.resample(
+                audio_array, 
+                orig_sr=original_sample_rate, 
+                target_sr=target_sample_rate
+            )
+        
+        # Convert back to appropriate format
+        if target_format == "mulaw_8khz":
+            # Convert to mu-law encoding
+            # First, convert to 16-bit PCM
+            audio_int16 = (audio_array * 32767).astype(np.int16)
+            # Then convert to mu-law (simplified approach)
+            # For proper mu-law encoding, you might want to use a dedicated library
+            # But for basic functionality, we'll convert to 8-bit and use as mu-law approximation
+            audio_mulaw = ((audio_int16 / 256) + 128).astype(np.uint8)
+            resampled_bytes = audio_mulaw.tobytes()
+        else:
+            # Convert back to 16-bit PCM for l-16
+            audio_int16 = (audio_array * 32767).astype(np.int16)
+            resampled_bytes = audio_int16.tobytes()
+        
+        return resampled_bytes, target_sample_rate, target_content_type
+        
+    except Exception as e:
+        raise PlivoAudioStreamError(f"Failed to resample audio: {str(e)}")
+
+
+# def _detect_audio_format(audio_data: bytes) -> tuple[int, int]:
+#     """
+#     Attempt to detect basic audio format parameters from raw audio data.
+    
+#     This is a simple heuristic-based detection and may not be accurate for all formats.
+#     It's better to explicitly provide sample_rate and channels when possible.
+    
+#     Args:
+#         audio_data: Raw audio bytes
+        
+#     Returns:
+#         Tuple of (estimated_sample_rate, estimated_channels)
+#     """
+#     # Simple heuristic: assume 16-bit PCM and estimate based on data length
+#     # This is not reliable and should be used as fallback only
+#     data_length = len(audio_data)
+    
+#     # Common sample rates to test
+#     common_rates = [8000, 16000, 22050, 24000, 44100, 48000]
+    
+#     # Assume 16-bit samples (2 bytes per sample)
+#     bytes_per_sample = 2
+    
+#     # Estimate channels (assume mono or stereo)
+#     # This is very rough estimation
+#     estimated_channels = 1
+#     if data_length > 48000:  # If more than ~1 second at 48kHz mono
+#         estimated_channels = 2 if (data_length % 4 == 0) else 1
+    
+#     # Estimate sample rate (very rough)
+#     samples_per_channel = data_length // (bytes_per_sample * estimated_channels)
+    
+#     # Find closest common sample rate (assume ~1 second of audio)
+#     estimated_sample_rate = min(common_rates, key=lambda x: abs(x - samples_per_channel))
+    
+#     return estimated_sample_rate, estimated_channels
 
 
 class PlivoAudioStreamClient:
@@ -63,12 +190,13 @@ class PlivoAudioStreamClient:
         stream_client.playAudio(base64_audio_data)
     """
 
-    def __init__(self, websocket_connection):
+    def __init__(self, websocket_connection, chunk_size: int = 8192):
         """
         Initialize the PlivoAudioStreamClient.
 
         Args:
             websocket_connection: An active WebSocket connection object
+            chunk_size: Size of each audio chunk in bytes for streaming (default: 8192)
         """
         if websocket is None:
             raise PlivoRestError(
@@ -79,10 +207,14 @@ class PlivoAudioStreamClient:
         if not websocket_connection:
             raise InvalidRequestError("WebSocket connection is required")
 
+        if chunk_size <= 0:
+            raise InvalidRequestError("Chunk size must be positive")
+
         self._websocket = websocket_connection
         self._is_listening = False
         self._listener_thread = None
         self._event_handlers = {"media": None, "start": None, "end": None}
+        self._chunk_size = chunk_size
 
     def onAudio(self, handler: Callable[[Dict[str, Any]], None]) -> Callable:
         """
@@ -143,42 +275,103 @@ class PlivoAudioStreamClient:
 
     def playAudio(
         self,
-        audio_data: str,
-        sample_rate: int = 24000,
-        content_type: str = "audio/x-l16",
+        audio_data: bytes,
+        sample_rate: int = 16000,
+        content_type: str = "audio/x-l16", 
+        target_format: str = "l16_16khz",
+        original_channels: int = 1,
+        enable_resampling: bool = True,
     ) -> None:
         """
-        Send base64 audio data to the WebSocket connection.
+        Send audio data to the WebSocket connection with chunking and resampling support.
+        
+        Automatically resamples audio to Plivo-supported formats:
+        - 8kHz with mulaw (audio/x-mulaw) when target_format="mulaw_8khz"
+        - 16kHz with l-16 (audio/x-l16) when target_format="l16_16khz"
 
         Args:
-            audio_data: Base64 encoded audio data
-            sample_rate: Audio sample rate (default: 24000)
-            content_type: Audio content type (default: "audio/x-l16")
+            audio_data: Raw audio bytes (assumed to be 16-bit PCM)
+            sample_rate: Original audio sample rate (default: 16000)
+            content_type: Audio content type - will be overridden if resampling is enabled
+            target_format: Either "mulaw_8khz" or "l16_16khz" (default: "l16_16khz")
+            original_channels: Number of channels in original audio (default: 1)
+            enable_resampling: Whether to enable automatic resampling (default: True)
 
         Raises:
             PlivoAudioStreamError: If there's an error sending the audio data
             InvalidRequestError: If audio_data is invalid
+            
+        Note:
+            Audio chunking size is configured in the constructor (default: 8192 bytes)
         """
         if not audio_data:
             raise InvalidRequestError("Audio data is required")
 
-        if not isinstance(audio_data, str):
-            raise InvalidRequestError("Audio data must be a base64 encoded string")
+        if not isinstance(audio_data, bytes):
+            raise InvalidRequestError("Audio data must be a bytes object")
 
+        # Resample audio if enabled
+        processed_audio_data = audio_data
+        final_sample_rate = sample_rate
+        final_content_type = content_type
+        
+        if enable_resampling:
+            try:
+                processed_audio_data, final_sample_rate, final_content_type = _resample_audio_for_plivo(
+                    audio_data=audio_data,
+                    original_sample_rate=sample_rate,
+                    target_format=target_format,
+                    original_channels=original_channels
+                )
+            except PlivoAudioStreamError:
+                # Re-raise resampling errors
+                raise
+            except Exception as e:
+                raise PlivoAudioStreamError(f"Failed to resample audio: {str(e)}")
+
+        # Split audio data into chunks
+        total_chunks = (len(processed_audio_data) + self._chunk_size - 1) // self._chunk_size
+        
+        for chunk_index in range(total_chunks):
+            start_pos = chunk_index * self._chunk_size
+            end_pos = min(start_pos + self._chunk_size, len(processed_audio_data))
+            chunk = processed_audio_data[start_pos:end_pos]
+            
+            # encode the chunk to base64
+            chunk_base64 = base64.b64encode(chunk).decode('utf-8')
+            
+            message = {
+                "event": "playAudio",
+                "media": {
+                    "payload": chunk_base64,
+                    "sampleRate": final_sample_rate,
+                    "contentType": final_content_type,
+                },
+                "sequenceNumber": chunk_index,
+                "totalChunks": total_chunks,
+                "chunkIndex": chunk_index,
+            }
+
+            try:
+                message_json = json.dumps(message)
+                self._send_message(message_json)
+            except Exception as e:
+                raise PlivoAudioStreamError(f"Failed to send audio chunk {chunk_index}: {str(e)}")
+
+    def send_checkpoint(self) -> None:
+        """
+        Send a checkpoint message to the WebSocket connection.
+        """
         message = {
-            "event": "playAudio",
-            "media": {
-                "payload": audio_data,
-                "sampleRate": sample_rate,
-                "contentType": content_type,
-            },
+            "event": "checkpoint",
         }
-
         try:
             message_json = json.dumps(message)
             self._send_message(message_json)
         except Exception as e:
-            raise PlivoAudioStreamError(f"Failed to send audio data: {str(e)}")
+            raise PlivoAudioStreamError(f"Failed to send checkpoint message: {str(e)}")
+
+    
 
     def start_listening(self) -> None:
         """
@@ -436,19 +629,24 @@ class PlivoAsyncAudioStreamClient:
         asyncio.run(main())
     """
 
-    def __init__(self, websocket_connection):
+    def __init__(self, websocket_connection, chunk_size: int = 8192):
         """
         Initialize the PlivoAsyncAudioStreamClient.
 
         Args:
             websocket_connection: An active async WebSocket connection object
+            chunk_size: Size of each audio chunk in bytes for streaming (default: 8192)
         """
         if not websocket_connection:
             raise InvalidRequestError("WebSocket connection is required")
 
+        if chunk_size <= 0:
+            raise InvalidRequestError("Chunk size must be positive")
+
         self._websocket = websocket_connection
         self._is_listening = False
         self._event_handlers = {"media": None, "start": None, "end": None}
+        self._chunk_size = chunk_size
 
     def onAudio(self, handler: Callable[[Dict[str, Any]], Any]) -> Callable:
         """
@@ -509,42 +707,98 @@ class PlivoAsyncAudioStreamClient:
 
     async def playAudio(
         self,
-        audio_data: str,
-        sample_rate: int = 24000,
+        audio_data: Union[str, bytes],
+        sample_rate: int = 16000,
         content_type: str = "audio/x-l16",
+        target_format: str = "l16_16khz",
+        original_channels: int = 1,
+        enable_resampling: bool = True,
     ) -> None:
         """
-        Send base64-encoded audio data to the WebSocket.
+        Send audio data to the WebSocket with chunking and resampling support.
+        
+        Automatically resamples audio to Plivo-supported formats:
+        - 8kHz with mulaw (audio/x-mulaw) when target_format="mulaw_8khz"  
+        - 16kHz with l-16 (audio/x-l16) when target_format="l16_16khz"
 
         Args:
-            audio_data: Base64 encoded audio data
-            sample_rate: Audio sample rate (default: 24000)
-            content_type: Audio content type (default: "audio/x-l16")
+            audio_data: Base64 encoded string or raw bytes (assumed to be 16-bit PCM if bytes)
+            sample_rate: Original audio sample rate (default: 16000)
+            content_type: Audio content type - will be overridden if resampling is enabled
+            target_format: Either "mulaw_8khz" or "l16_16khz" (default: "l16_16khz")
+            original_channels: Number of channels in original audio (default: 1)
+            enable_resampling: Whether to enable automatic resampling (default: True)
 
         Raises:
             PlivoAudioStreamError: If there's an error sending the audio data
             InvalidRequestError: If audio_data is invalid
+            
+        Note:
+            Audio chunking size is configured in the constructor (default: 8192 bytes)
         """
         if not audio_data:
             raise InvalidRequestError("Audio data is required")
 
-        if not isinstance(audio_data, str):
-            raise InvalidRequestError("Audio data must be a base64 encoded string")
+        # Handle both bytes and base64 string input
+        if isinstance(audio_data, bytes):
+            # Raw bytes input
+            raw_data = audio_data
+        elif isinstance(audio_data, str):
+            # Decode base64 to bytes
+            try:
+                raw_data = base64.b64decode(audio_data)
+            except Exception as e:
+                raise InvalidRequestError(f"Invalid base64 audio data: {str(e)}")
+        else:
+            raise InvalidRequestError("Audio data must be bytes or base64 encoded string")
 
-        message = {
-            "event": "playAudio",
-            "media": {
-                "payload": audio_data,
-                "sampleRate": sample_rate,
-                "contentType": content_type,
-            },
-        }
+        # Resample audio if enabled
+        processed_audio_data = raw_data
+        final_sample_rate = sample_rate
+        final_content_type = content_type
+        
+        if enable_resampling:
+            try:
+                processed_audio_data, final_sample_rate, final_content_type = _resample_audio_for_plivo(
+                    audio_data=raw_data,
+                    original_sample_rate=sample_rate,
+                    target_format=target_format,
+                    original_channels=original_channels
+                )
+            except PlivoAudioStreamError:
+                # Re-raise resampling errors
+                raise
+            except Exception as e:
+                raise PlivoAudioStreamError(f"Failed to resample audio: {str(e)}")
 
-        try:
-            message_json = json.dumps(message)
-            await self._send_message(message_json)
-        except Exception as e:
-            raise PlivoAudioStreamError(f"Failed to send audio data: {str(e)}")
+        # Split audio data into chunks
+        total_chunks = (len(processed_audio_data) + self._chunk_size - 1) // self._chunk_size
+        
+        for chunk_index in range(total_chunks):
+            start_pos = chunk_index * self._chunk_size
+            end_pos = min(start_pos + self._chunk_size, len(processed_audio_data))
+            chunk = processed_audio_data[start_pos:end_pos]
+            
+            # encode the chunk to base64
+            chunk_base64 = base64.b64encode(chunk).decode('utf-8')
+            
+            message = {
+                "event": "playAudio",
+                "media": {
+                    "payload": chunk_base64,
+                    "sampleRate": final_sample_rate,
+                    "contentType": final_content_type,
+                },
+                "sequenceNumber": chunk_index,
+                "totalChunks": total_chunks,
+                "chunkIndex": chunk_index,
+            }
+
+            try:
+                message_json = json.dumps(message)
+                await self._send_message(message_json)
+            except Exception as e:
+                raise PlivoAudioStreamError(f"Failed to send audio chunk {chunk_index}: {str(e)}")
 
     async def start_listening(self) -> None:
         """
